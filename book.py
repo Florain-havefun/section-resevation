@@ -78,6 +78,7 @@ def check_token():
     return False
 
 
+def flatten_sessions(data):
     """展平响应数据（可能是嵌套列表）"""
     sessions = []
     if isinstance(data, list):
