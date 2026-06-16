@@ -124,6 +124,16 @@ def pick_best_session(available):
     return available[0]
 
 
+def sort_by_preference(available):
+    """按偏好排序可用时段"""
+    def score(s):
+        time_val = s.get("openStartTime", "")
+        if time_val in PREFERRED_START_TIMES:
+            return PREFERRED_START_TIMES.index(time_val)
+        return len(PREFERRED_START_TIMES)
+    return sorted(available, key=score)
+
+
 def reserve_session(session, date_str):
     """提交预约"""
     url = f"{BASE_URL}/business-service/orders/weChatSessionsReserve"
@@ -210,16 +220,31 @@ def run():
                 for s in available[:5]:
                     print(f"    {s.get('placeName')} {s.get('openStartTime')}-{s.get('openEndTime')}")
 
-                target = pick_best_session(available)
-                print(f"\n[!] 选中: {target.get('placeName')} {target.get('openStartTime')}-{target.get('openEndTime')}")
-                print("[*] 正在提交预约...")
+                # 按偏好排序后逐个尝试，被占用就换下一个
+                tried = set()
+                for target in sort_by_preference(available):
+                    if target["id"] in tried:
+                        continue
+                    tried.add(target["id"])
+                    print(f"\n[!] 尝试: {target.get('placeName')} {target.get('openStartTime')}-{target.get('openEndTime')}")
 
-                result = reserve_session(target, date_str)
-                print(f"[+] 预约结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
-                print(f"\n{'=' * 50}")
-                print(f"  抢票成功! {target.get('placeName')} {date_str} {target.get('openStartTime')}")
-                print(f"{'=' * 50}")
-                return True
+                    result = reserve_session(target, date_str)
+                    code = result.get("code") if isinstance(result, dict) else None
+
+                    if code == 201:
+                        print(f"    [-] 已被占用，换下一个...")
+                        continue
+                    elif code and code != 200:
+                        print(f"    [-] 失败 (code={code}): {result.get('msg', '')}")
+                        continue
+                    else:
+                        print(f"[+] 预约结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
+                        print(f"\n{'=' * 50}")
+                        print(f"  抢票成功! {target.get('placeName')} {date_str} {target.get('openStartTime')}")
+                        print(f"{'=' * 50}")
+                        return True
+
+                print("    [*] 所有可用时段都被占用，继续轮询...")
             else:
                 ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
                 status_set = set(s.get("sessionsStatus") for s in sessions) if sessions else set()
